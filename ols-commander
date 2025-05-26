@@ -1,0 +1,479 @@
+#!/bin/bash
+
+
+VHOSTS_DIR="/usr/local/lsws/conf/vhosts"
+HTTPD_CONF="/usr/local/lsws/conf/httpd_config.conf"
+DEFAULT_PHP="php81"
+
+install_lsphp(){
+  echo "📦 Installing lsphp versions and extensions..."
+
+  for v in 74 80 81 82 83; do
+    echo "➡ Installing lsphp$v and extensions..."
+
+    packages=(
+      lsphp$v
+      lsphp$v-common
+      lsphp$v-mysql
+      lsphp$v-curl
+      lsphp$v-cli
+      lsphp$v-gd
+      lsphp$v-mbstring
+      lsphp$v-xml
+      lsphp$v-zip
+      lsphp$v-opcache
+      lsphp$v-imap
+      lsphp$v-intl
+      lsphp$v-soap
+      lsphp$v-bcmath
+      lsphp$v-exif
+    )
+
+    for pkg in "${packages[@]}"; do
+      if apt-cache show "$pkg" > /dev/null 2>&1; then
+        echo "   📦 Installing $pkg..."
+        sudo apt install -y "$pkg"
+      else
+        echo "   ⚠️  Package $pkg not found. Skipping..."
+      fi
+    done
+
+    echo "✅ Finished attempting to install lsphp$v packages."
+    echo
+  done
+
+  echo "✅ All required PHP versions and extensions processed."
+
+}
+
+
+add_php_versions_to_httpd_config() {
+
+echo "Adding PHP Versions to main config..."
+cat >> $HTTPD_CONF <<EOF
+
+extprocessor lsphp74 {
+  type                    lsapi
+  address                 uds://tmp/lshttpd/lsphp74.sock
+  maxConns                10
+  env                     PHP_LSAPI_CHILDREN=10
+  initTimeout             60
+  retryTimeout            0
+  persistConn             1
+  respBuffer              0
+  autoStart               1
+  path                    /usr/local/lsws/lsphp74/bin/lsphp
+  backlog                 100
+  instances               1
+}
+
+extprocessor lsphp80 {
+  type                    lsapi
+  address                 uds://tmp/lshttpd/lsphp80.sock
+  maxConns                10
+  env                     PHP_LSAPI_CHILDREN=10
+  initTimeout             60
+  retryTimeout            0
+  persistConn             1
+  respBuffer              0
+  autoStart               1
+  path                    /usr/local/lsws/lsphp80/bin/lsphp
+  backlog                 100
+  instances               1
+}
+
+
+extprocessor lsphp81 {
+  type                    lsapi
+  address                 uds://tmp/lshttpd/lsphp81.sock
+  maxConns                10
+  env                     PHP_LSAPI_CHILDREN=10
+  initTimeout             60
+  retryTimeout            0
+  persistConn             1
+  respBuffer              0
+  autoStart               1
+  path                    /usr/local/lsws/lsphp81/bin/lsphp
+  backlog                 100
+  instances               1
+}
+
+extprocessor lsphp82 {
+  type                    lsapi
+  address                 uds://tmp/lshttpd/lsphp82.sock
+  maxConns                10
+  env                     PHP_LSAPI_CHILDREN=10
+  initTimeout             60
+  retryTimeout            0
+  persistConn             1
+  respBuffer              0
+  autoStart               1
+  path                    /usr/local/lsws/lsphp82/bin/lsphp
+  backlog                 100
+  instances               1
+}
+
+
+EOF
+
+echo "done"
+
+}
+
+
+installation () {
+
+# Update system and add required repositories
+
+
+echo "🔄 Adding Repo..."
+wget -O - https://repo.litespeed.sh | sudo bash
+echo "🔄 Updating system and adding repositories..."
+sudo apt update
+
+sudo apt install openlitespeed lsphp81
+sudo /usr/local/lsws/admin/misc/admpass.sh
+
+
+# Install lsphp versions and extensions if not installed
+install_lsphp
+add_php_versions_to_httpd_config
+change_http_port
+ 
+echo "🔄 Upgrading System.."
+sudo apt upgrade
+
+echo "🔄 Installing Php Dependencies"
+sudo apt install -y software-properties-common
+sudo add-apt-repository universe -y
+sudo add-apt-repository ppa:ondrej/php -y  # For optional PHP libraries
+
+
+
+sudo apt update
+sudo apt install mariadb-server -y
+
+sudo dnf install mariadb-server -y
+sudo systemctl enable --now mariadb
+
+sudo mysql_secure_installation
+
+sudo apt update && sudo apt install -y \
+  build-essential \
+  pkg-config \
+  libxml2-dev \
+  libsqlite3-dev \
+  libcurl4-openssl-dev \
+  libssl-dev \
+  zlib1g-dev \
+  libjpeg-dev \
+  libpng-dev \
+  libwebp-dev \
+  libxpm-dev \
+  libfreetype6-dev \
+  libzip-dev \
+  libonig-dev \
+  libldap2-dev \
+  libgmp-dev \
+  libicu-dev \
+  libpspell-dev \
+  libedit-dev \
+  libreadline-dev \
+  libtidy-dev \
+  libxslt1-dev \
+  libsodium-dev \
+  libargon2-dev \
+  libdb-dev \
+  libenchant-dev \
+  libkrb5-dev \
+  libsnmp-dev \
+  libpq-dev \
+  libvpx-dev
+
+}
+
+
+change_http_port() {
+  local old_port=8088
+  local new_port=80
+
+  echo "🔧 Updating HTTP port from $old_port to $new_port"
+
+  if grep -q "listener Default" "$HTTPD_CONF"; then
+    echo "➡ Modifying existing listener block..."
+    sed -i "s/*:$old_port/*:$new_port/g" "$HTTPD_CONF"
+  else
+    echo "➡ No existing listener block found. Appending new listener..."
+    cat >> "$HTTPD_CONF" <<EOF
+
+listener Default {
+    address                  *:$new_port
+    secure                   0
+    map                      Example *
+}
+EOF
+  fi
+
+  echo "✅ Port update complete."
+}
+
+create_listener_if_missing() {
+  listener_name="$1"
+  listener_ip="*"
+  listener_port="$2"
+  config_file="/usr/local/lsws/conf/httpd_config.conf"
+
+  # Check if listener already exists
+  if grep -q "listener $listener_name" "$config_file"; then
+    echo "Listener '$listener_name' already exists. Skipping creation."
+  else
+    echo "Creating listener '$listener_name' on port $listener_port..."
+
+    # Append listener block to config file
+    cat <<EOF >> "$config_file"
+
+listener $listener_name {
+  address                 $listener_ip:$listener_port
+  secure                  0
+  map                     *
+}
+EOF
+
+    echo "Listener '$listener_name' added."
+  fi
+
+  # Restart OpenLiteSpeed to apply changes
+  echo "Restarting OpenLiteSpeed..."
+  sudo /usr/local/lsws/bin/lswsctrl restart
+}
+
+
+add_domain_to_listener() {
+
+  create_listener_if_missing "Default" "80"
+  local domain="$1"
+  local listener_name="Default"
+
+  if [[ -z "$domain" ]]; then
+    echo "❌ Error: Domain name is required."
+    echo "Usage: add_domain_to_listener <domain>"
+    return 1
+  fi
+
+  echo "🔧 Adding domain '$domain' to listener '$listener_name'..."
+
+  if ! grep -q "listener $listener_name" "$HTTPD_CONF"; then
+    echo "❌ Listener '$listener_name' not found in $HTTPD_CONF"
+    return 2
+  fi
+
+  if grep -q "map.*$domain" "$HTTPD_CONF"; then
+    echo "⚠️ Domain '$domain' is already mapped. Skipping..."
+    return 0
+  fi
+
+  awk -v listener="$listener_name" -v domain="$domain" '
+  BEGIN { in_listener=0 }
+  {
+    if ($0 ~ "listener[[:space:]]+" listener "[[:space:]]*{") {
+      in_listener = 1
+    }
+
+    if (in_listener && /^\s*}/) {
+      print "    map                      " domain " " domain
+      in_listener = 0
+    }
+
+    print
+  }
+  ' "$HTTPD_CONF" > "${HTTPD_CONF}.tmp" && mv "${HTTPD_CONF}.tmp" "$HTTPD_CONF"
+
+  echo "✅ Domain '$domain' mapped inside listener '$listener_name'."
+
+  # Restart OpenLiteSpeed to apply changes
+  echo "Restarting OpenLiteSpeed..."
+  sudo /usr/local/lsws/bin/lswsctrl restart
+}
+
+
+
+
+
+
+# ----------------END-Installation -------------- #
+
+# Add a domain
+add_domain() {
+
+
+  DOMAIN=$1
+  EMAIL="admin@$DOMAIN"
+  DB_NAME="wp_${DOMAIN//./_}"
+  DB_USER="user_${DOMAIN//./_}"
+  DB_PASS=$(openssl rand -base64 12)
+
+  add_domain_to_listener "$DOMAIN"
+
+  echo "Creating directories..."
+  VHOST_DIR="/var/www/$DOMAIN"
+  CONF_DIR="/usr/local/lsws/conf/vhosts/$DOMAIN"
+  mkdir -p $VHOST_DIR/html $VHOST_DIR/logs $CONF_DIR
+  chown -R nobody:nogroup $VHOST_DIR
+  touch $CONF_DIR/vhconf.conf
+
+
+  echo "Creating virtual host config..."
+  cat > $CONF_DIR/vhconf.conf <<EOF
+docRoot                   /var/www/$DOMAIN/html/
+vhDomain                  $DOMAIN
+vhAliases                 www.$DOMAIN
+adminEmails               webmaster@$DOMAIN
+gzip  {
+  enableGzip             1
+  enableBrotli           1
+  enableBr               1
+}
+
+scriptHandler{
+    add lsapi:lsphp81 php
+}
+
+errorlog \$VH_ROOT/logs/error.log {
+  useServer               1
+  logLevel                ERROR
+  rollingSize             10M
+}
+
+accesslog \$VH_ROOT/logs/access.log {
+  useServer               0
+  rollingSize             10M
+  keepDays                30
+  compressArchive         1
+}
+
+index  {
+  useServer               0
+  indexFiles              index.php index.html
+  autoIndex               0
+}
+
+expires  {
+  expiresByType           image/*=A31536000
+  expiresByType           text/css=A31536000
+  expiresByType           application/x-javascript=A31536000
+  expiresByType           application/javascript=A31536000
+  expiresByType           font/*=A31536000
+  expiresByType           application/x-font-ttf=A31536000
+}
+
+accessControl  {
+  allow                   *
+}
+
+rewrite  {
+  enable                  1
+  autoLoadHtaccess        1
+}
+
+
+
+
+EOF
+
+  echo "Adding virtual host to main config..."
+  cat >> $HTTPD_CONF <<EOF
+#--Start-$DOMAIN--#
+virtualhost $DOMAIN {
+  vhRoot                  /usr/local/lsws/conf/vhosts/$DOMAIN 
+  configFile              /usr/local/lsws/conf/vhosts/$DOMAIN/vhconf.conf
+  allowSymbolLink         1
+  enableScript            1
+  restrained              1
+  maxKeepAliveReq         300
+  setUIDMode              2
+}
+
+
+#--End-$DOMAIN--#
+EOF
+
+echo "Restarting OpenLiteSpeed..."  
+
+/usr/local/lsws/bin/lswsctrl reload
+
+}
+
+add_domain_ssl(){
+
+  DOMAIN=$1
+  EMAIL="admin@$DOMAIN"
+  DB_NAME="wp_${DOMAIN//./_}"
+  DB_USER="user_${DOMAIN//./_}"
+  DB_PASS=$(openssl rand -base64 12)
+  VHOST_DIR="/var/www/$DOMAIN"
+  CONF_DIR="/usr/local/lsws/conf/vhosts/$DOMAIN"
+
+  echo "Creating SSL cert with Let's Encrypt..."
+
+  certbot certonly --webroot -w $VHOST_DIR/html -d $DOMAIN --email $EMAIL --agree-tos --non-interactive
+
+  echo "Adding SSL configuration"
+
+  cat >> $HTTPD_CONF <<EOF
+
+listener SSL {
+  address                 *:443
+  secure                  1
+  map                     $DOMAIN $DOMAIN 
+}
+EOF
+
+  echo "adding ssl to vhost..."
+
+cat >> $CONF_DIR/vhconf.conf <<EOF
+
+vhssl  {
+  keyFile                 /etc/letsencrypt/live/$DOMAIN/privkey.pem
+  certFile                /etc/letsencrypt/live/$DOMAIN/fullchain.pem
+  sslProtocol             23
+  enableECDHE             1
+}
+
+EOF
+
+  echo "Restarting OpenLiteSpeed..."  
+
+  /usr/local/lsws/bin/lswsctrl reload
+
+
+}
+
+
+# Main
+case "$1" in
+
+  install)
+    installation
+    ;;
+  install_php)
+    install_lsphp
+    ;;
+  add_php_to_config)
+    add_php_versions_to_httpd_config
+    ;;
+  change_port)
+    change_http_port
+    ;;
+  add_domain_to_listener)
+    add_domain_to_listener "$2"
+    ;;
+  add_domain)
+    add_domain "$2"
+    ;;
+  add_domain_ssl)
+    add_domain_ssl "$2"
+    ;;
+  *)
+    echo "Usage: $0 {add} domain.com"
+    ;;
+esac
