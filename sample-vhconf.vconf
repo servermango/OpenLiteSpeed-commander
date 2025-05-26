@@ -1,0 +1,50 @@
+docRoot                   /var/www/test.news/html/
+vhDomain                  test.news
+vhAliases                 www.test.news
+adminEmails               webmaster@test.news
+gzip  {
+  enableGzip             1
+  enableBrotli           1
+  enableBr               1
+}
+
+scriptHandler{
+    add lsapi:lsphp81 php
+}
+
+errorlog $VH_ROOT/logs/error.log {
+  useServer               1
+  logLevel                ERROR
+  rollingSize             10M
+}
+
+accesslog $VH_ROOT/logs/access.log {
+  useServer               0
+  rollingSize             10M
+  keepDays                30
+  compressArchive         1
+}
+
+index  {
+  useServer               0
+  indexFiles              index.php index.html
+  autoIndex               0
+}
+
+expires  {
+  expiresByType           image/*=A31536000
+  expiresByType           text/css=A31536000
+  expiresByType           application/x-javascript=A31536000
+  expiresByType           application/javascript=A31536000
+  expiresByType           font/*=A31536000
+  expiresByType           application/x-font-ttf=A31536000
+}
+
+accessControl  {
+  allow                   *
+}
+
+rewrite  {
+  enable                  1
+  autoLoadHtaccess        1
+}
