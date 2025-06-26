@@ -143,12 +143,17 @@ change_http_port
 echo "🔄 Upgrading System.."
 sudo apt upgrade
 
+
+sudo apt update
+sudo apt install certbot 
+
 echo "🔄 Installing Php Dependencies"
 sudo apt install -y software-properties-common
 sudo add-apt-repository universe -y
 sudo add-apt-repository ppa:ondrej/php -y  # For optional PHP libraries
 
-
+#permalink doesnt work without this line
+chown -R lsadm:lsadm /usr/local/lsws/conf/vhosts
 
 sudo apt update
 sudo apt install mariadb-server -y
@@ -425,6 +430,8 @@ listener SSL {
   address                 *:443
   secure                  1
   map                     $DOMAIN $DOMAIN 
+  keyFile                 /etc/letsencrypt/live/$DOMAIN/privkey.pem
+  certFile                /etc/letsencrypt/live/$DOMAIN/fullchain.pem
 }
 EOF
 
@@ -441,9 +448,9 @@ vhssl  {
 
 EOF
 
-  echo "Restarting OpenLiteSpeed..."  
+echo "Restarting OpenLiteSpeed..."  
 
-  /usr/local/lsws/bin/lswsctrl reload
+/usr/local/lsws/bin/lswsctrl reload
 
 
 }
